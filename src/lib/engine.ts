@@ -184,40 +184,54 @@ export async function runRecommendationEngine(
             addLog({ level: 'WARN', message: `Could not load Sonarr library: ${(err as Error).message}`, source: 'engine' });
         }
 
-        // Step 1: Fetch watch history
-        const connector = createMediaServerConnector();
-        let watchHistory: WatchedItem[];
-
+        // Step 1: Fetch each optional history source independently. One service
+        // being unavailable must not prevent the other from informing the run.
+        const cfg = getConfig();
+        const sourceName = cfg.mediaServer.type === 'jellyfin'
+            ? 'Jellyfin'
+            : cfg.mediaServer.type === 'plex' ? 'Plex' : 'Emby';
+        let mediaServerHistory: WatchedItem[] = [];
         try {
-            const cfg = getConfig();
-            const mediaServerHistory = await connector.getWatchHistory(cfg.app.watchHistoryLimit);
-            watchHistory = await combineOptionalRyotHistory(
-                mediaServerHistory,
-                cfg.ryot,
-                (ryotConfig) => getRyotWatchHistory(ryotConfig, cfg.app.watchHistoryLimit),
-                (message) => addLog({ level: 'WARN', message, source: 'ryot' }),
-            );
-            result.watchedCount = watchHistory.length;
-            // Add watched titles to the exclusion set
-            for (const w of watchHistory) {
-                library.watchedTitles.add(w.title.toLowerCase());
-            }
-            addLog({ level: 'INFO', message: `📺 Found ${watchHistory.length} watched items`, source: 'engine' });
+            const connector = createMediaServerConnector(cfg.mediaServer);
+            mediaServerHistory = await connector.getWatchHistory(cfg.app.watchHistoryLimit);
+            addLog({ level: 'INFO', message: `[engine] ${sourceName} history: ${mediaServerHistory.length}`, source: 'engine' });
         } catch (err) {
-            const msg = `Failed to fetch watch history: ${(err as Error).message}`;
+            const msg = `Could not fetch ${sourceName} history (${(err as Error).name || 'Error'}); continuing with other configured history sources`;
             result.errors.push(msg);
             addLog({ level: 'ERROR', message: msg, source: 'engine' });
-            return result;
         }
 
+        addLog({ level: 'INFO', message: `[engine] Ryot enabled: ${cfg.ryot.enabled}`, source: 'engine' });
+        let ryotHistoryCount = 0;
+        const watchHistory = await combineOptionalRyotHistory(
+            mediaServerHistory,
+            cfg.ryot,
+            async (ryotConfig) => {
+                const history = await getRyotWatchHistory(ryotConfig, cfg.app.watchHistoryLimit);
+                ryotHistoryCount = history.length;
+                return history;
+            },
+            (message) => addLog({ level: 'WARN', message, source: 'ryot' }),
+        );
+        if (cfg.ryot.enabled) {
+            addLog({ level: 'INFO', message: `[engine] Ryot history: ${ryotHistoryCount}`, source: 'engine' });
+        }
+        addLog({ level: 'INFO', message: `[engine] Merged history: ${watchHistory.length}`, source: 'engine' });
+        result.watchedCount = watchHistory.length;
+        // Add watched titles to the exclusion set
+        for (const w of watchHistory) {
+            library.watchedTitles.add(w.title.toLowerCase());
+        }
+        addLog({ level: 'INFO', message: `📺 Found ${watchHistory.length} watched items`, source: 'engine' });
+
         if (watchHistory.length === 0) {
+            addLog({ level: 'INFO', message: `[engine] Candidates generated: 0`, source: 'engine' });
             addLog({ level: 'WARN', message: 'No watch history found. Skipping.', source: 'engine' });
             return result;
         }
 
         // Step 2: Get TMDb recommendations
         const allTmdbRecs: Recommendation[] = [];
-        const cfg = getConfig();
         const maxPerItem = Math.ceil(cfg.app.maxRecommendationsPerRun / Math.min(watchHistory.length, 10));
 
         // Filter watch history by media type if filter is set
@@ -289,9 +303,6 @@ export async function runRecommendationEngine(
             }
         }
 
-        result.tmdbRecommendations = allTmdbRecs.length;
-        addLog({ level: 'INFO', message: `🎯 TMDb found ${allTmdbRecs.length} recommendations`, source: 'engine' });
-
         // Step 2c: Creator Following (Director extraction for Top 2 movies)
         try {
             const topMovies = scoredHistory.filter(s => s.item.mediaType === 'movie' && s.item.tmdbId).slice(0, 2);
@@ -352,6 +363,13 @@ export async function runRecommendationEngine(
         }
 
         // Step 4: Merge, deduplicate, and save
+        result.tmdbRecommendations = allTmdbRecs.length;
+        addLog({ level: 'INFO', message: `🎯 TMDb found ${allTmdbRecs.length} recommendations`, source: 'engine' });
+        addLog({
+            level: 'INFO',
+            message: `[engine] Candidates generated: ${result.tmdbRecommendations + result.aiRecommendations}`,
+            source: 'engine',
+        });
         const allRecs = [...allTmdbRecs, ...aiRecs]
             .toSorted((a, b) => scoreRecommendation(b, feedbackProfile, preferredLanguages) - scoreRecommendation(a, feedbackProfile, preferredLanguages));
         const seen = new Set<string>();

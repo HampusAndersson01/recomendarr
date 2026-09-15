@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { addLog } from './database';
 import type { RyotConfig, WatchedItem } from './types';
 
 type RyotMetadata = {
@@ -166,15 +167,38 @@ export async function combineOptionalRyotHistory(
     }
     try {
         return mergeWatchHistories(mediaServerHistory, await fetchHistory(config));
-    } catch {
-        warn('Could not fetch Ryot history; continuing with media server history');
+    } catch (error) {
+        warn(`Could not fetch Ryot history (${safeRyotError(error, config.apiToken)}); continuing with media server history`);
         return mediaServerHistory;
     }
+}
+
+function safeRyotError(error: unknown, token: string): string {
+    if (axios.isAxiosError(error)) {
+        if (error.response) return `HTTP ${error.response.status}`;
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') return 'request timed out';
+        return 'network request failed';
+    }
+
+    if (!(error instanceof Error)) return 'unknown error';
+    let message = error.message;
+    if (token) message = message.replaceAll(token, '[redacted]');
+    message = message.replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]');
+    message = message.replace(/https?:\/\/[^\s"']+/gi, '[Ryot endpoint]');
+    return message.slice(0, 200) || 'unknown error';
+}
+
+export interface RyotConnectionTestResult {
+    networkSuccess: boolean;
+    historySuccess: boolean;
+    historyCount: number;
+    error?: string;
 }
 
 export class RyotConnector {
     private readonly baseUrl: string;
     private readonly token: string;
+    private failedHistoryDetails = 0;
 
     constructor(config: RyotConfig) {
         this.baseUrl = `${config.url.replace(/\/+$/, '')}/backend/graphql`;
@@ -187,26 +211,52 @@ export class RyotConnector {
             { query, variables },
             { headers: { Authorization: `Bearer ${this.token}` }, timeout: 10000 },
         );
-        if (response.data.errors?.length) throw new Error('Ryot returned a GraphQL error');
+        if (response.data.errors?.length) {
+            const firstMessage = response.data.errors.find((error) => error.message)?.message;
+            throw new Error(firstMessage ? `Ryot GraphQL error: ${firstMessage}` : 'Ryot returned a GraphQL error');
+        }
         if (!response.data.data) throw new Error('Ryot returned an invalid GraphQL response');
         return response.data.data;
     }
 
-    async testConnection(): Promise<boolean> {
+    async testConnection(limit = 50): Promise<RyotConnectionTestResult> {
+        let networkSuccess = false;
         try {
-            await this.query<{ userMetadataList: { response: { items: string[] } } }>(
-                'query TestRyotConnection { userMetadataList(input: { search: { take: 1, page: 1 } }) { response { items } } }',
-            );
-            return true;
-        } catch {
-            return false;
+            await axios.get(this.baseUrl, { timeout: 10000 });
+            networkSuccess = true;
+        } catch (error) {
+            // GraphQL commonly rejects a bare GET with 4xx, which still proves
+            // the endpoint is reachable. Network errors have no HTTP response.
+            networkSuccess = axios.isAxiosError(error) && Boolean(error.response);
+            if (!networkSuccess) {
+                return { networkSuccess: false, historySuccess: false, historyCount: 0, error: 'Ryot endpoint is unreachable' };
+            }
+        }
+
+        try {
+            const history = await this.getWatchHistory(limit);
+            const historySuccess = this.failedHistoryDetails === 0;
+            return {
+                networkSuccess,
+                historySuccess,
+                historyCount: history.length,
+                ...(historySuccess ? {} : { error: 'One or more Ryot history details could not be loaded' }),
+            };
+        } catch (error) {
+            return {
+                networkSuccess,
+                historySuccess: false,
+                historyCount: 0,
+                error: `Ryot authenticated history query failed (${safeRyotError(error, this.token)})`,
+            };
         }
     }
 
     async getWatchHistory(limit = 50): Promise<WatchedItem[]> {
         const items: WatchedItem[] = [];
+        this.failedHistoryDetails = 0;
         const loadBatch = async (ids: string[]) => {
-            const batch = await Promise.all(ids.map(async (metadataId) => {
+            const batch = await Promise.allSettled(ids.map(async (metadataId) => {
                 const data = await this.query<{
                     metadataDetails: { response: RyotMetadata };
                     userMetadataDetails: { response: { history: RyotSeen[]; reviews: RyotReview[] } };
@@ -220,7 +270,13 @@ export class RyotConnector {
                     reviews: data.userMetadataDetails.response.reviews,
                 });
             }));
-            items.push(...batch.filter((item): item is WatchedItem => item !== null));
+            for (const result of batch) {
+                if (result.status === 'fulfilled') {
+                    if (result.value) items.push(result.value);
+                } else {
+                    this.failedHistoryDetails++;
+                }
+            }
         };
 
         for (const lot of ['Movie', 'Show']) {
@@ -238,9 +294,23 @@ export class RyotConnector {
                 if (items.length - lotStartCount >= limit || !response.details.nextPage) break;
             }
         }
-        return items
+        const history = items
             .sort((a, b) => Date.parse(b.lastPlayedDate || '') - Date.parse(a.lastPlayedDate || ''))
             .slice(0, limit);
+        addLog({ level: 'INFO', message: `[ryot] fetched ${history.length} watched items`, source: 'ryot' });
+        addLog({
+            level: 'INFO',
+            message: `[ryot] test item Moana present: ${history.some((item) => item.title.trim().toLocaleLowerCase() === 'moana')}`,
+            source: 'ryot',
+        });
+        if (this.failedHistoryDetails > 0) {
+            addLog({
+                level: 'WARN',
+                message: `[ryot] ${this.failedHistoryDetails} metadata history detail request(s) failed; retained successful results`,
+                source: 'ryot',
+            });
+        }
+        return history;
     }
 }
 

@@ -146,8 +146,14 @@ export function SettingsPage({
     const handleTest = async (service: string) => {
         const data = await onTest(service, formData as unknown as Record<string, string>);
         if (data?.success) {
-            toast('Connection successful', 'success');
+            toast(service === 'ryot'
+                ? `Ryot history query successful (${data.historyCount ?? 0} watched items)`
+                : 'Connection successful', 'success');
             handleDiscovery(service, data);
+        } else if (service === 'ryot' && data) {
+            toast(data.networkSuccess
+                ? `Ryot is reachable, but authenticated history query failed${data.error ? `: ${data.error}` : ''}`
+                : `Ryot is unreachable${data.error ? `: ${data.error}` : ''}`, 'error');
         }
     };
 
@@ -365,6 +371,15 @@ export function SettingsPage({
                             </label>
                         </div>
                         <p className="helper-copy">Create an API token in Ryot under Settings → Integrations, then paste it here. The token stays on the server and is never returned by settings APIs.</p>
+                        {connResults.ryot?.data && (
+                            <p className="helper-copy" role="status">
+                                {connResults.ryot.data.historySuccess
+                                    ? `Authenticated history query returned ${connResults.ryot.data.historyCount ?? 0} watched items.`
+                                    : connResults.ryot.data.networkSuccess
+                                        ? `Ryot is reachable, but its authenticated history query failed${connResults.ryot.data.error ? `: ${connResults.ryot.data.error}` : '.'}`
+                                        : 'Ryot endpoint is unreachable.'}
+                            </p>
+                        )}
                     </section>
                 </div>
             )}

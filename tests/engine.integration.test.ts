@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { runRecommendationEngine, getIsRunning, approveAndAdd } from '../src/lib/engine';
 import * as mediaServer from '../src/lib/media-server';
+import * as ryot from '../src/lib/ryot';
 import * as radarr from '../src/lib/radarr';
 import * as sonarr from '../src/lib/sonarr';
 import * as tmdb from '../src/lib/tmdb';
@@ -47,7 +48,8 @@ describe('Engine Integration Tests (Hybrid Mocking)', () => {
             vi.spyOn(config, 'getConfig').mockReturnValue({
                 ...realCfg,
                 scheduler: { ...realCfg.scheduler, autoAdd: true },
-                ai: { ...realCfg.ai, enabled: false } // disable AI to save tokens in engine run, already tested above
+                ai: { ...realCfg.ai, enabled: false }, // disable AI to save tokens in engine run, already tested above
+                ryot: { ...realCfg.ryot, enabled: false },
             } as AppConfig);
 
             // Give it fake radarr/sonarr libraries
@@ -89,6 +91,8 @@ describe('Engine Integration Tests (Hybrid Mocking)', () => {
             expect(result).toHaveProperty('watchedCount');
             expect(result.watchedCount).toBe(2);
             expect(result.errors).toEqual([]);
+            const connector = vi.mocked(mediaServer.createMediaServerConnector).mock.results[0]?.value;
+            expect(connector?.getWatchHistory).toHaveBeenCalledWith(config.getConfig().app.watchHistoryLimit);
         }, 15000);
         
         it('should execute engine run with different filters', async () => {
@@ -195,7 +199,60 @@ describe('Engine Integration Tests (Hybrid Mocking)', () => {
         it('should safely catch library and history fetch errors', async () => {
             const result = await runRecommendationEngine();
             expect(result.errors.length).toBeGreaterThan(0);
-            expect(result.errors[0]).toContain('Failed to fetch watch history');
+            expect(result.errors[0]).toContain('Could not fetch Plex history');
+        });
+
+        it('should keep using Ryot history when Jellyfin history retrieval fails', async () => {
+            const realCfg = config.getConfig();
+            vi.spyOn(config, 'getConfig').mockReturnValue({
+                ...realCfg,
+                mediaServer: { ...realCfg.mediaServer, type: 'jellyfin' },
+                ryot: { enabled: true, url: 'http://ryot:8000', apiToken: 'test-token' },
+                scheduler: { ...realCfg.scheduler, autoAdd: false },
+                ai: { ...realCfg.ai, enabled: false },
+            } as AppConfig);
+            const ryotItem: WatchedItem = {
+                title: 'Moana', year: 2016, mediaType: 'movie', tmdbId: 277834,
+                language: 'en', historySource: 'ryot', playCount: 1,
+            };
+            const fetchRyotHistory = vi.spyOn(ryot, 'getRyotWatchHistory').mockResolvedValue([ryotItem]);
+            vi.spyOn(database, 'addRecommendation').mockImplementation((recommendation) => recommendation);
+            vi.spyOn(tmdb, 'getRecommendationsForItem').mockResolvedValue([]);
+
+            const result = await runRecommendationEngine();
+
+            expect(fetchRyotHistory).toHaveBeenCalledWith(
+                expect.objectContaining({ enabled: true, url: 'http://ryot:8000' }),
+                realCfg.app.watchHistoryLimit,
+            );
+            expect(result.watchedCount).toBe(1);
+        });
+
+        it('should merge history from Jellyfin and enabled Ryot in a manual run', async () => {
+            const realCfg = config.getConfig();
+            vi.spyOn(config, 'getConfig').mockReturnValue({
+                ...realCfg,
+                mediaServer: { ...realCfg.mediaServer, type: 'jellyfin' },
+                ryot: { enabled: true, url: 'http://ryot:8000', apiToken: 'test-token' },
+                scheduler: { ...realCfg.scheduler, autoAdd: false },
+                ai: { ...realCfg.ai, enabled: false },
+            } as AppConfig);
+            const jellyfinItem: WatchedItem = {
+                title: 'Jellyfin only', year: 2020, mediaType: 'movie', tmdbId: 100,
+                playCount: 1,
+            };
+            const ryotItem: WatchedItem = {
+                title: 'Moana', year: 2016, mediaType: 'movie', tmdbId: 277834,
+                playCount: 1, historySource: 'ryot',
+            };
+            vi.spyOn(mediaServer, 'createMediaServerConnector').mockReturnValue(createMockConnector([jellyfinItem]));
+            vi.spyOn(ryot, 'getRyotWatchHistory').mockResolvedValue([ryotItem]);
+            vi.spyOn(database, 'addRecommendation').mockImplementation((recommendation) => recommendation);
+            vi.spyOn(tmdb, 'getRecommendationsForItem').mockResolvedValue([]);
+
+            const result = await runRecommendationEngine();
+
+            expect(result.watchedCount).toBe(2);
         });
     });
 

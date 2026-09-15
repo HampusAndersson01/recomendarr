@@ -55,13 +55,38 @@ class JellyfinConnector implements MediaServerConnector {
                 SortOrder: 'Descending',
                 IsPlayed: true,
                 Fields: 'ProviderIds,Genres,Overview,UserData',
-                IncludeItemTypes: 'Movie,Series',
+                IncludeItemTypes: 'Movie,Episode',
                 Limit: limit,
                 Recursive: true,
             },
         });
 
-        const items: WatchedItem[] = res.data.Items.map((item: Record<string, unknown>) => {
+        const rawItems = res.data.Items as Array<Record<string, unknown>>;
+        const movies = rawItems.filter((item) => item.Type === 'Movie');
+        const episodes = rawItems.filter((item) => item.Type === 'Episode');
+        const seriesIds = [...new Set(episodes.map((item) => item.SeriesId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+        let seriesById = new Map<string, Record<string, unknown>>();
+
+        if (seriesIds.length > 0) {
+            try {
+                const seriesResponse = await this.client.get(`/Users/${userId}/Items`, {
+                    params: {
+                        Ids: seriesIds.join(','),
+                        IncludeItemTypes: 'Series',
+                        Fields: 'ProviderIds,Genres,Overview,ImageTags',
+                        Recursive: true,
+                    },
+                });
+                seriesById = new Map(
+                    (seriesResponse.data.Items as Array<Record<string, unknown>>)
+                        .map((series) => [series.Id as string, series]),
+                );
+            } catch (err) {
+                addLog({ level: 'WARN', message: `Could not load Jellyfin series metadata for watched episodes: ${(err as Error).name}`, source: 'jellyfin' });
+            }
+        }
+
+        const movieItems: WatchedItem[] = movies.map((item) => {
             const providerIds = (item.ProviderIds || {}) as Record<string, string>;
             const userData = (item.UserData || {}) as Record<string, unknown>;
             return {
@@ -80,6 +105,45 @@ class JellyfinConnector implements MediaServerConnector {
                     : undefined,
             };
         });
+
+        const showHistory = new Map<string, WatchedItem>();
+        for (const episode of episodes) {
+            const seriesId = typeof episode.SeriesId === 'string' ? episode.SeriesId : '';
+            const series = seriesId ? seriesById.get(seriesId) : undefined;
+            const title = typeof series?.Name === 'string'
+                ? series.Name
+                : typeof episode.SeriesName === 'string' ? episode.SeriesName : '';
+            if (!title) continue;
+
+            const providerIds = (series?.ProviderIds || {}) as Record<string, string>;
+            const userData = (episode.UserData || {}) as Record<string, unknown>;
+            const key = seriesId || `${title.toLowerCase()}:${series?.ProductionYear || ''}`;
+            const existing = showHistory.get(key);
+            const playedDate = userData.LastPlayedDate as string | undefined;
+            const existingDate = existing?.lastPlayedDate;
+            if (existing && existingDate && playedDate && Date.parse(existingDate) >= Date.parse(playedDate)) continue;
+
+            showHistory.set(key, {
+                title,
+                year: series?.ProductionYear as number | undefined,
+                mediaType: 'series',
+                tmdbId: providerIds.Tmdb ? parseInt(providerIds.Tmdb, 10) : undefined,
+                tvdbId: providerIds.Tvdb ? parseInt(providerIds.Tvdb, 10) : undefined,
+                imdbId: providerIds.Imdb || undefined,
+                genres: (series?.Genres || []) as string[],
+                lastPlayedDate: playedDate,
+                // Episode events establish show interest; they are not show rewatches.
+                playCount: 1,
+                overview: series?.Overview as string | undefined,
+                posterUrl: series?.ImageTags && (series.ImageTags as Record<string, string>).Primary
+                    ? `${this.cfg.url}/Items/${series?.Id}/Images/Primary`
+                    : undefined,
+            });
+        }
+
+        const items = [...movieItems, ...showHistory.values()]
+            .sort((a, b) => Date.parse(b.lastPlayedDate || '') - Date.parse(a.lastPlayedDate || ''))
+            .slice(0, limit);
 
         addLog({ level: 'INFO', message: `Fetched ${items.length} watched items from Jellyfin`, source: 'jellyfin' });
         return items;

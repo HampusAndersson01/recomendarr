@@ -15,10 +15,16 @@ export async function POST(request: Request) {
 
         switch (service) {
             case 'ryot': {
-                const connected = config.ryot.url && config.ryot.apiToken
+                const result = config.ryot.url && config.ryot.apiToken
                     ? await new RyotConnector(config.ryot).testConnection()
-                    : false;
-                return NextResponse.json({ success: connected });
+                    : { networkSuccess: false, historySuccess: false, historyCount: 0, error: 'Ryot URL and API token are required' };
+                return NextResponse.json({
+                    success: result.historySuccess,
+                    networkSuccess: result.networkSuccess,
+                    historySuccess: result.historySuccess,
+                    historyCount: result.historyCount,
+                    error: result.error,
+                });
             }
 
             case 'mediaServer': {

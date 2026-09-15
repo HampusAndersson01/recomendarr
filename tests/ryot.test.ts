@@ -110,7 +110,7 @@ describe('watch history merging', () => {
             async () => { throw new Error('network error'); }, (message) => warnings.push(message),
         );
         expect(result).toEqual([jellyfin]);
-        expect(warnings).toEqual(['Could not fetch Ryot history; continuing with media server history']);
+        expect(warnings).toEqual(['Could not fetch Ryot history (network error); continuing with media server history']);
     });
 });
 
@@ -118,9 +118,12 @@ describe('Ryot connection test', () => {
     afterEach(() => vi.restoreAllMocks());
 
     it('uses the supported GraphQL path and bearer token', async () => {
-        const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { data: { userMetadataList: { response: { items: [] } } } } });
+        vi.spyOn(axios, 'get').mockRejectedValue({ isAxiosError: true, response: { status: 405 } });
+        const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { data: { userMetadataList: { response: { items: [], details: {} } } } } });
         const connector = new RyotConnector({ enabled: true, url: 'http://ryot:8000/', apiToken: 'user-token' });
-        await expect(connector.testConnection()).resolves.toBe(true);
+        await expect(connector.testConnection()).resolves.toMatchObject({
+            networkSuccess: true, historySuccess: true, historyCount: 0,
+        });
         expect(post).toHaveBeenCalledWith(
             'http://ryot:8000/backend/graphql',
             expect.objectContaining({ query: expect.stringContaining('userMetadataList') }),
@@ -129,9 +132,23 @@ describe('Ryot connection test', () => {
     });
 
     it('returns failure without surfacing network error details', async () => {
+        vi.spyOn(axios, 'get').mockRejectedValue({ isAxiosError: true, response: { status: 405 } });
         vi.spyOn(axios, 'post').mockRejectedValue(new Error('request failed: sensitive detail'));
         const connector = new RyotConnector({ enabled: true, url: 'http://ryot:8000', apiToken: 'user-token' });
-        await expect(connector.testConnection()).resolves.toBe(false);
+        await expect(connector.testConnection()).resolves.toMatchObject({
+            networkSuccess: true, historySuccess: false, historyCount: 0,
+            error: expect.stringContaining('authenticated history query failed'),
+        });
+    });
+
+    it('distinguishes an unreachable endpoint from authenticated history failure', async () => {
+        vi.spyOn(axios, 'get').mockRejectedValue(new Error('network unavailable'));
+        const post = vi.spyOn(axios, 'post');
+        const connector = new RyotConnector({ enabled: true, url: 'http://ryot:8000', apiToken: 'user-token' });
+        await expect(connector.testConnection()).resolves.toMatchObject({
+            networkSuccess: false, historySuccess: false, historyCount: 0,
+        });
+        expect(post).not.toHaveBeenCalled();
     });
 });
 
