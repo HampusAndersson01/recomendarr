@@ -4,10 +4,10 @@
   <img src="https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
 </div>
 
-<h1 align="center">Recomendarr</h1>
+<h1 align="center">Recomendarr — HampusAndersson01 fork</h1>
 
 <p align="center">
-  A self-hosted, AI-powered media recommendation engine that analyzes your watch history and automatically adds personalized movie and TV show recommendations directly to <b>Radarr</b> and <b>Sonarr</b>. 
+  A self-hosted, AI-powered media recommendation engine that analyzes your watch history and recommends personalized movies and TV shows for <b>Radarr</b> and <b>Sonarr</b>. This fork adds optional <b>Ryot</b> watch-history support.
 </p>
 
 ## ✨ Features
@@ -17,6 +17,7 @@
 - **Direct Integration**: Adds approved media straight into Radarr and Sonarr—no Jellyseerr or Overseerr required.
 - **Guided Setup Wizard**: A discovery-first, 5-step onboarding UI with a final review screen to connect all your services in minutes.
 - **UI-Driven Configuration**: No complex `.env` files to manage. Settings are editable from a beautiful web interface and persisted in a lightweight SQLite database.
+- **Ryot History (Fork Feature)**: Optionally merge completed movie and show history from Ryot with Plex, Jellyfin, or Emby history. Jellyfin watched episodes are included as series history.
 
 ---
 
@@ -77,7 +78,7 @@ Recomendarr is designed to be ridiculously easy to spin up, primarily via Docker
 ```yaml
 services:
   recomendarr:
-    image: dheerajr00/recomendarr:3
+    image: ghcr.io/hampusandersson01/recomendarr:sha-1db44ea
     container_name: recomendarr
     ports:
       - "3000:3000"
@@ -103,7 +104,7 @@ docker run -d \
   -p 3000:3000 \
   -v recomendarr-data:/app/data \
   --restart unless-stopped \
-  dheerajr00/recomendarr:3
+  ghcr.io/hampusandersson01/recomendarr:sha-1db44ea
 ```
 
 ### Option 3: Local Node.js Development
@@ -111,7 +112,7 @@ If you want to run from source or contribute to development:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/dheerajramasahayam/recomendarr.git
+git clone https://github.com/HampusAndersson01/recomendarr.git
 cd recomendarr
 ```
 2. Install dependencies:
@@ -146,11 +147,11 @@ Once setup is complete, settings are permanently saved to the `recomendarr.db` S
 
 This fork can optionally add completed movie and show history from [Ryot](https://github.com/IgnisDa/ryot) to the configured Plex, Jellyfin, or Emby history. It is useful for older viewing data imported into Ryot, including Netflix history that is not in your media server. Jellyfin remains supported and Ryot can be left disabled for existing setups.
 
-In **Settings → Media Server**, enable Ryot, set its internal Docker URL (for example `http://ryot:8000` when both containers share a Docker network), and add a Ryot API token. In Ryot, create the token under **Settings → Integrations**; Recomendarr sends it as a Bearer token to Ryot's `/backend/graphql` endpoint. The token is stored server-side and is not returned by Recomendarr's settings API. Use an internal URL; do not expose Ryot through Recomendarr or a public proxy for this integration.
+In **Settings → Media Server**, enable Ryot, set its internal Docker URL (for example `http://ryot:8000` when both containers share a Docker network), and add a Ryot API token. In Ryot, create the token under **Settings → Integrations**; Recomendarr sends it as a Bearer token to Ryot's `/backend/graphql` endpoint. The token is stored server-side and is not returned by Recomendarr's settings API. Ensure Recomendarr can reach the Ryot URL from its container.
 
-Use **Test connection** to verify the URL and token. If Ryot is unreachable, returns an error, or is missing a token, Recomendarr logs a short warning and continues with media-server history. When both sources contain the same title, Recomendarr deduplicates by TMDb ID, then IMDb/TVDb ID, then normalized title, year, and media type. It keeps the latest completion date, Ryot rating when available, and the larger source-reported play count rather than adding the counts together. The AI taste profile already consumes ratings and play counts, so Ryot ratings become preference signals without a prompt-engine redesign.
+Use **Test connection** to check endpoint reachability and run the authenticated history query. The result reports whether the history query succeeded and how many watched items it returned. If Ryot is unreachable or its history query fails, Recomendarr logs a sanitized warning and continues with media-server history. Engine logs report each source count, the merged count, and candidate count without logging API tokens or request headers. When both sources contain the same title, Recomendarr deduplicates by TMDb ID, then IMDb/TVDb ID, then normalized title, year, and media type. It keeps the latest completion date, Ryot rating when available, and the larger source-reported play count rather than adding the counts together.
 
-The custom fork image is `ghcr.io/hampusandersson01/recomendarr:ryot` (or its immutable `sha-<commit>` tag). This is a personal fork feature and is not necessarily intended for upstream Recomendarr.
+The latest history fix is available as `ghcr.io/hampusandersson01/recomendarr:sha-1db44ea`. Pull it with `docker pull ghcr.io/hampusandersson01/recomendarr:sha-1db44ea`. The `sha-<commit>` tags are immutable; check the [fork's package page](https://github.com/HampusAndersson01/recomendarr/pkgs/container/recomendarr) for newer builds. This fork's Ryot integration and engine fixes may differ from upstream Recomendarr.
 
 ---
 
@@ -160,4 +161,4 @@ The custom fork image is `ghcr.io/hampusandersson01/recomendarr:ryot` (or its im
 - [Docker](https://www.docker.com/) (Standalone Next.js output)
 
 ## 🤝 Contribution
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/dheerajramasahayam/recomendarr/issues).
+This is a personal fork of [upstream Recomendarr](https://github.com/dheerajramasahayam/recomendarr). Fork-specific issues and feature requests belong on the [HampusAndersson01 fork](https://github.com/HampusAndersson01/recomendarr/issues).
