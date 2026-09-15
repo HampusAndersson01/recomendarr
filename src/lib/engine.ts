@@ -1,4 +1,5 @@
 import { createMediaServerConnector } from './media-server';
+import { combineOptionalRyotHistory, getRyotWatchHistory } from './ryot';
 import { getRecommendationsForItem, getTmdbExternalIds, searchTmdb, discoverByFilters, getTmdbCredits, searchTmdbKeyword, discoverByKeywords, discoverByCrew } from './tmdb';
 import { getAiRecommendations, generateTasteProfile, TasteProfile } from './ai-recommender';
 import { addMovieToRadarr, getAllRadarrMovies } from './radarr';
@@ -189,7 +190,13 @@ export async function runRecommendationEngine(
 
         try {
             const cfg = getConfig();
-            watchHistory = await connector.getWatchHistory(cfg.app.watchHistoryLimit);
+            const mediaServerHistory = await connector.getWatchHistory(cfg.app.watchHistoryLimit);
+            watchHistory = await combineOptionalRyotHistory(
+                mediaServerHistory,
+                cfg.ryot,
+                (ryotConfig) => getRyotWatchHistory(ryotConfig, cfg.app.watchHistoryLimit),
+                (message) => addLog({ level: 'WARN', message, source: 'ryot' }),
+            );
             result.watchedCount = watchHistory.length;
             // Add watched titles to the exclusion set
             for (const w of watchHistory) {

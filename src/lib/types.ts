@@ -25,6 +25,13 @@ export interface WatchedItem {
     rating?: number;
     overview?: string;
     posterUrl?: string;
+    historySource?: 'ryot';
+}
+
+export interface RyotConfig {
+    enabled: boolean;
+    url: string;
+    apiToken: string;
 }
 
 export interface Recommendation {
