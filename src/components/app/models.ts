@@ -68,6 +68,9 @@ export interface ConnectionResult {
     testing: boolean;
     data?: {
         success?: boolean;
+        networkSuccess?: boolean;
+        historySuccess?: boolean;
+        historyCount?: number;
         users?: DiscoveryUser[];
         profiles?: ArrProfile[];
         rootFolders?: ArrFolder[];
