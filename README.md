@@ -142,6 +142,16 @@ Once setup is complete, settings are permanently saved to the `recomendarr.db` S
 
 *If you ever need to change API keys or URLs later, simply click on the **Settings** tab in the app.*
 
+## Ryot history integration (fork-specific)
+
+This fork can optionally add completed movie and show history from [Ryot](https://github.com/IgnisDa/ryot) to the configured Plex, Jellyfin, or Emby history. It is useful for older viewing data imported into Ryot, including Netflix history that is not in your media server. Jellyfin remains supported and Ryot can be left disabled for existing setups.
+
+In **Settings → Media Server**, enable Ryot, set its internal Docker URL (for example `http://ryot:8000` when both containers share a Docker network), and add a Ryot API token. In Ryot, create the token under **Settings → Integrations**; Recomendarr sends it as a Bearer token to Ryot's `/backend/graphql` endpoint. The token is stored server-side and is not returned by Recomendarr's settings API. Use an internal URL; do not expose Ryot through Recomendarr or a public proxy for this integration.
+
+Use **Test connection** to verify the URL and token. If Ryot is unreachable, returns an error, or is missing a token, Recomendarr logs a short warning and continues with media-server history. When both sources contain the same title, Recomendarr deduplicates by TMDb ID, then IMDb/TVDb ID, then normalized title, year, and media type. It keeps the latest completion date, Ryot rating when available, and the larger source-reported play count rather than adding the counts together. The AI taste profile already consumes ratings and play counts, so Ryot ratings become preference signals without a prompt-engine redesign.
+
+The custom fork image is `ghcr.io/hampusandersson01/recomendarr:ryot` (or its immutable `sha-<commit>` tag). This is a personal fork feature and is not necessarily intended for upstream Recomendarr.
+
 ---
 
 ## 🏗 Built With

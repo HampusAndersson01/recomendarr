@@ -5,6 +5,7 @@ import { testRadarrConnection, getRadarrQualityProfiles, getRadarrRootFolders } 
 import { testAiConnection } from '@/lib/ai-recommender';
 import { getConfigWithOverrides } from '@/lib/config';
 import { sendTestNotification } from '@/lib/notifications';
+import { RyotConnector } from '@/lib/ryot';
 
 export async function POST(request: Request) {
     try {
@@ -13,6 +14,13 @@ export async function POST(request: Request) {
         const config = getConfigWithOverrides(settings || {});
 
         switch (service) {
+            case 'ryot': {
+                const connected = config.ryot.url && config.ryot.apiToken
+                    ? await new RyotConnector(config.ryot).testConnection()
+                    : false;
+                return NextResponse.json({ success: connected });
+            }
+
             case 'mediaServer': {
                 const connector = createMediaServerConnector(config.mediaServer);
                 const connected = await connector.testConnection();

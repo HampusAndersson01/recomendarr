@@ -23,6 +23,7 @@ export interface TasteProfile {
 
 const TASTE_PROFILE_PROMPT = `You are a psychological film and television analyst. Analyze the provided watch history (with ratings and play counts) and output a Taste Profile.
 Understand their pacing preferences, thematic interests, preferred genres, and common tropes they enjoy.
+Treat ratings as explicit preference signals: high ratings indicate strong enjoyment and low ratings indicate dislike.
 Also, provide 3 highly specific niche keywords (e.g., "cyberpunk", "time loop", "heist") that define their current taste.
 
 Output MUST be a valid JSON object:

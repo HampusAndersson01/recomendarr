@@ -139,6 +139,12 @@ export function getAllSavedSettings(): Record<string, string> {
   return loadSettings();
 }
 
+export function sanitizePublicSettings(settings: Record<string, string>): Record<string, string> {
+  const safeSettings = { ...settings };
+  delete safeSettings.ryot_api_token;
+  return safeSettings;
+}
+
 export function isSetupComplete(): boolean {
   const settings = loadSettings();
   return settings['setup_complete'] === 'true';
@@ -153,6 +159,11 @@ export function getConfig() {
       apiKey: get('media_server_api_key', 'MEDIA_SERVER_API_KEY', ''),
       userId: get('media_server_user_id', 'MEDIA_SERVER_USER_ID', ''),
       plexToken: get('plex_token', 'PLEX_TOKEN', ''),
+    },
+    ryot: {
+      enabled: get('ryot_enabled', 'RYOT_ENABLED', 'false') === 'true',
+      url: get('ryot_url', 'RYOT_URL', 'http://ryot:8000'),
+      apiToken: get('ryot_api_token', 'RYOT_API_TOKEN', ''),
     },
     sonarr: {
       url: get('sonarr_url', 'SONARR_URL', ''),
@@ -215,6 +226,11 @@ export function getConfigWithOverrides(overrides: Record<string, string> = {}): 
       apiKey: withFallback(overrides.media_server_api_key, config.mediaServer.apiKey),
       userId: withFallback(overrides.media_server_user_id, config.mediaServer.userId),
       plexToken: withFallback(overrides.plex_token, config.mediaServer.plexToken || config.mediaServer.apiKey),
+    },
+    ryot: {
+      enabled: parseBoolean(overrides.ryot_enabled, config.ryot.enabled),
+      url: withFallback(overrides.ryot_url, config.ryot.url),
+      apiToken: overrides.ryot_api_token ? overrides.ryot_api_token : config.ryot.apiToken,
     },
     sonarr: {
       ...config.sonarr,

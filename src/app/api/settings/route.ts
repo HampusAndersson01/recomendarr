@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllSavedSettings, saveSettings, isSetupComplete, getConfig } from '@/lib/config';
+import { getAllSavedSettings, sanitizePublicSettings, saveSettings, isSetupComplete, getConfig } from '@/lib/config';
 import { getSchedulerSnapshot, syncRecommendationScheduler } from '@/lib/scheduler';
 import cron from 'node-cron';
 
@@ -10,6 +10,7 @@ export async function GET() {
         const savedSettings = getAllSavedSettings();
         const setupComplete = isSetupComplete();
         const schedulerSnapshot = getSchedulerSnapshot();
+        const safeSettings = sanitizePublicSettings(savedSettings);
 
         return NextResponse.json({
             setupComplete,
@@ -19,6 +20,11 @@ export async function GET() {
                     url: config.mediaServer.url,
                     apiKey: config.mediaServer.apiKey ? '••••' + config.mediaServer.apiKey.slice(-4) : '',
                     hasApiKey: !!config.mediaServer.apiKey,
+                },
+                ryot: {
+                    enabled: config.ryot.enabled,
+                    url: config.ryot.url,
+                    hasApiToken: !!config.ryot.apiToken,
                 },
                 sonarr: {
                     url: config.sonarr.url,
@@ -55,7 +61,7 @@ export async function GET() {
                     notifyOnErrors: config.notifications.notifyOnErrors,
                 },
             },
-            raw: savedSettings,
+            raw: safeSettings,
         });
     } catch (err) {
         return NextResponse.json({ error: (err as Error).message }, { status: 500 });
@@ -78,6 +84,10 @@ export async function PUT(request: NextRequest) {
                 normalized[key] = String(value);
             }
         }
+
+        // A blank Ryot token means "keep the stored token". Never include the
+        // credential in settings responses, and don't erase it on unrelated saves.
+        if (!normalized.ryot_api_token?.trim()) delete normalized.ryot_api_token;
 
         const schedulerEnabled = normalized.scheduler_enabled === 'true';
         if (schedulerEnabled && normalized.cron_schedule && !cron.validate(normalized.cron_schedule)) {
