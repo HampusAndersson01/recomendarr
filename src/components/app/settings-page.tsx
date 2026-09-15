@@ -364,7 +364,7 @@ export function SettingsPage({
                                 <input type="password" value={formData.ryot_api_token} onChange={(event) => updateField('ryot_api_token', event.target.value)} placeholder={ryotHasToken ? 'Saved securely (enter to replace)' : 'Paste a Ryot user API token'} autoComplete="new-password" />
                             </label>
                         </div>
-                        <p className="helper-copy">Create a user token in Ryot under Settings → Security, then paste it here. The token stays on the server and is never returned by settings APIs.</p>
+                        <p className="helper-copy">Create an API token in Ryot under Settings → Integrations, then paste it here. The token stays on the server and is never returned by settings APIs.</p>
                     </section>
                 </div>
             )}
