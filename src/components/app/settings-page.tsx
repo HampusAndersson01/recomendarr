@@ -31,6 +31,7 @@ export function SettingsPage({
     const [formData, setFormData] = useState<SettingsFormData>({ ...DEFAULT_SETTINGS_FORM });
     const [saving, setSaving] = useState(false);
     const [loaded, setLoaded] = useState(false);
+    const [ryotHasToken, setRyotHasToken] = useState(false);
     const [activeTab, setActiveTab] = useState<SettingsTabId>('media');
     const [savedSnapshot, setSavedSnapshot] = useState('');
     const [schedulePreset, setSchedulePreset] = useState(getSchedulePreset(DEFAULT_SETTINGS_FORM.cron_schedule));
@@ -60,6 +61,7 @@ export function SettingsPage({
                     ),
                 } as SettingsFormData;
 
+                setRyotHasToken(Boolean(data.config?.ryot?.hasApiToken));
                 setFormData(merged);
                 setSavedSnapshot(JSON.stringify(merged));
                 setSchedulePreset(getSchedulePreset(merged.cron_schedule));
@@ -169,7 +171,10 @@ export function SettingsPage({
             }
 
             const nextRun = schedulerPreview?.nextRun ?? null;
-            setSavedSnapshot(JSON.stringify(formData));
+            const savedForm = { ...formData, ryot_api_token: '' };
+            setFormData(savedForm);
+            setRyotHasToken(ryotHasToken || Boolean(formData.ryot_api_token));
+            setSavedSnapshot(JSON.stringify(savedForm));
             setSavedNextRun(nextRun);
             toast('Settings saved', 'success');
         } catch (error) {
@@ -203,6 +208,7 @@ export function SettingsPage({
     const sonarrStatus = serviceHealth(connResults.sonarr, Boolean(formData.sonarr_url && formData.sonarr_api_key));
     const radarrStatus = serviceHealth(connResults.radarr, Boolean(formData.radarr_url && formData.radarr_api_key));
     const aiStatus = serviceHealth(connResults.ai, Boolean(formData.ai_enabled === 'true' && formData.ai_provider_url && formData.ai_api_key));
+    const ryotStatus = serviceHealth(connResults.ryot, Boolean(formData.ryot_enabled === 'true' && formData.ryot_url && (ryotHasToken || formData.ryot_api_token)));
 
     return (
         <div className="page-stack settings-page">
@@ -326,6 +332,39 @@ export function SettingsPage({
                                 </select>
                             </label>
                         )}
+                    </section>
+                    <section className="settings-card">
+                        <div className="section-heading">
+                            <div>
+                                <p className="section-kicker">Additional Watch History</p>
+                                <h3>Ryot</h3>
+                                <p className="helper-copy">Adds imported history and ratings to your media server history.</p>
+                            </div>
+                            <div className="section-health-row">
+                                <HealthBadge label={ryotStatus.label} status={ryotStatus.status} />
+                                <button className="btn btn-ghost btn-sm" onClick={() => handleTest('ryot')} disabled={connResults.ryot?.testing || !formData.ryot_url || (!ryotHasToken && !formData.ryot_api_token)}>
+                                    {connResults.ryot?.testing ? 'Testing...' : 'Test connection'}
+                                </button>
+                            </div>
+                        </div>
+                        <label className="field-row">
+                            <span>Enable Ryot history</span>
+                            <select value={formData.ryot_enabled} onChange={(event) => updateField('ryot_enabled', event.target.value)}>
+                                <option value="false">Disabled</option>
+                                <option value="true">Enabled</option>
+                            </select>
+                        </label>
+                        <div className="settings-grid two">
+                            <label className="field-row">
+                                <span>Ryot URL</span>
+                                <input type="text" value={formData.ryot_url} onChange={(event) => updateField('ryot_url', event.target.value)} placeholder="http://ryot:8000" />
+                            </label>
+                            <label className="field-row">
+                                <span>Ryot API token</span>
+                                <input type="password" value={formData.ryot_api_token} onChange={(event) => updateField('ryot_api_token', event.target.value)} placeholder={ryotHasToken ? 'Saved securely (enter to replace)' : 'Paste a Ryot user API token'} autoComplete="new-password" />
+                            </label>
+                        </div>
+                        <p className="helper-copy">Create a user token in Ryot under Settings → Security, then paste it here. The token stays on the server and is never returned by settings APIs.</p>
                     </section>
                 </div>
             )}

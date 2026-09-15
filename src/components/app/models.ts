@@ -33,6 +33,9 @@ export interface SettingsFormData {
     media_server_url: string;
     media_server_api_key: string;
     media_server_user_id: string;
+    ryot_enabled: string;
+    ryot_url: string;
+    ryot_api_token: string;
     sonarr_url: string;
     sonarr_api_key: string;
     sonarr_quality_profile_id: string;
@@ -189,6 +192,9 @@ export const DEFAULT_SETTINGS_FORM: SettingsFormData = {
     media_server_url: '',
     media_server_api_key: '',
     media_server_user_id: '',
+    ryot_enabled: 'false',
+    ryot_url: 'http://ryot:8000',
+    ryot_api_token: '',
     sonarr_url: '',
     sonarr_api_key: '',
     sonarr_quality_profile_id: '',
